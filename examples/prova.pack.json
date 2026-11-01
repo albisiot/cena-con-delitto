@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "id": "cena-di-prova",
+  "title": "Cena di prova",
+  "public": {
+    "tagline": "Solo per provare l'app: quattro minuti e un biscotto scomparso.",
+    "players": { "min": 3, "ideal": 4 },
+    "durationMinutes": 10,
+    "theme": { "bg": "#14110f", "fg": "#f4ead7", "accent": "#e0b040" },
+    "manual": [
+      { "title": "Come funziona", "blocks": [
+        { "t": "p", "text": "Una cena finta per controllare che l'app funzioni sui telefoni di tutti." },
+        { "t": "note", "text": "**Non contiene segreti veri:** la soluzione è scritta nel codice dell'app." }
+      ] }
+    ],
+    "cast": [
+      { "n": 1, "name": "Ada Forno", "role": "Cuoca", "line": "Conta i biscotti due volte." },
+      { "n": 2, "name": "Bruno Sale", "role": "Cameriere", "line": "Ha sempre le tasche piene." },
+      { "n": 3, "name": "Carla Menta", "role": "Ospite", "line": "Arriva sempre in anticipo." },
+      { "n": 4, "name": "Dario Noce", "role": "Vicino", "line": "Passava di qui per caso." }
+    ],
+    "program": [
+      { "id": "schede", "when": "0:00", "title": "Aperitivo", "kind": "cards", "instructions": "Leggi in silenzio la tua scheda, poi tieni il telefono coperto." },
+      { "id": "atto1", "when": "0:02", "title": "Atto I", "kind": "envelope", "envelope": "A", "instructions": "Si apre la Busta A. Leggete i documenti a voce alta.", "readAloud": [
+        { "t": "quote", "text": "Il biscotto più grande è sparito dalla cucina. Qualcuno a questa tavola ha le briciole addosso." }
+      ] },
+      { "id": "voto", "when": "0:06", "title": "Voto", "kind": "vote", "instructions": "Ognuno vota in segreto. Silenzio finché non è finita." },
+      { "id": "finale", "when": "0:08", "title": "Finale", "kind": "finale", "instructions": "Si legge il finale e si assegnano i punti." }
+    ],
+    "vote": {
+      "accusedPoints": 3,
+      "fields": [{ "id": "movente", "label": "Perché l'ha fatto?", "points": 1 }],
+      "missionPoints": 1,
+      "awardLabel": "Premio del pubblico"
+    }
+  },
+  "secret": {
+    "cards": {
+      "1": [{ "t": "h", "text": "Sei Ada" }, { "t": "p", "text": "Hai contato i biscotti alle otto: erano tutti." }],
+      "2": [{ "t": "h", "text": "Sei Bruno" }, { "t": "p", "text": "Hai rubato tu il biscotto. Puoi mentire." }],
+      "3": [{ "t": "h", "text": "Sei Carla" }, { "t": "p", "text": "Hai visto briciole vicino al vassoio." }],
+      "4": [{ "t": "h", "text": "Sei Dario" }, { "t": "p", "text": "Non hai visto niente, ma vuoi sembrare informato." }]
+    },
+    "envelopes": [
+      { "id": "A", "title": "Busta A", "documents": [
+        { "id": "a1", "title": "Registro della cucina", "blocks": [{ "t": "p", "text": "Alle otto e dieci solo il cameriere è entrato in cucina." }] }
+      ] }
+    ],
+    "finale": [{ "t": "h", "text": "Il colpevole" }, { "t": "p", "text": "È stato Bruno: aveva fame." }],
+    "solution": { "culprit": 2 }
+  }
+}

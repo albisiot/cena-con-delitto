@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.data/
+.env*
+next-env.d.ts
+*.tsbuildinfo
+out/
+.claude/
+# Le cene vere contengono soluzioni: non finiscono mai nel codice
+packs-private/
+supabase/.temp/
