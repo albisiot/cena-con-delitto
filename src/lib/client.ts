@@ -31,6 +31,10 @@ function safely<T>(fn: () => T): T | null {
   }
 }
 
+// Vale finché resta aperto il sito: alla prossima apertura si può scegliere di nuovo se accedere.
+export const chooseGuest = () => safely(() => sessionStorage.setItem('cena.guest', '1'));
+export const isGuest = () => safely(() => sessionStorage.getItem('cena.guest')) === '1';
+
 export const loadAccountToken = () => safely(() => localStorage.getItem(ACCOUNT_KEY)) ?? undefined;
 export const saveAccountToken = (token: string) => safely(() => localStorage.setItem(ACCOUNT_KEY, token));
 export const forgetAccountToken = () => safely(() => localStorage.removeItem(ACCOUNT_KEY));
