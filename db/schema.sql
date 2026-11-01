@@ -98,7 +98,7 @@ alter table accounts enable row level security;
 alter table account_sessions enable row level security;
 alter table account_dinners enable row level security;
 
--- Solo impronte SHA-256 dei codici di caricamento e del gruppo, mai i codici in chiaro.
+-- Solo l'impronta SHA-256 del codice di caricamento, mai il codice in chiaro.
 create table if not exists app_settings (
   key text primary key,
   value text not null

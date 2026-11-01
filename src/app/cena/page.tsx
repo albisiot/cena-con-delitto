@@ -18,7 +18,6 @@ function PackDetails() {
   const [mode, setMode] = useState<'nomaster' | 'master'>('nomaster');
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
-  const [groupCode, setGroupCode] = useState('');
   const [spoilerOk, setSpoilerOk] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,7 +48,7 @@ function PackDetails() {
     setError('');
     try {
       const out = await api('/api/games', {
-        body: { packId: id, mode, name, pin, groupCode, accountToken: loadAccountToken() },
+        body: { packId: id, mode, name, pin, accountToken: loadAccountToken() },
       });
       saveSession(out.code, out.token);
       router.push(`/partita?code=${out.code}`);
@@ -122,10 +121,9 @@ function PackDetails() {
             <p className="muted" style={{ marginTop: 4 }}>Serve per rientrare se cambi telefono o chiudi la pagina.</p>
           </>
         )}
-        <label htmlFor="group">Codice del gruppo</label>
-        <input id="group" value={groupCode} onChange={(e) => setGroupCode(e.target.value)} autoComplete="off" />
         {error && <p className="error">{error}</p>}
         <button disabled={busy || (mode === 'master' && !spoilerOk)}>Crea la stanza</button>
+        <p className="muted" style={{ marginTop: 8 }}>Poi l&apos;app ti dà il codice della stanza da mandare agli altri.</p>
       </form>
     </main>
   );

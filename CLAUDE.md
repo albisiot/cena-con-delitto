@@ -24,4 +24,4 @@ App da telefono per giocare cene con delitto tra amici, con o senza master. L'au
 
 ## Produzione
 
-Schema in `db/schema.sql`. La Edge Function va pubblicata con `verify_jwt: false`, perché controlla da sola i codici. I codici di caricamento e del gruppo stanno come impronte SHA-256 in `app_settings`; l'originale del codice di caricamento è in `.env.local`, fuori da git. GitHub Pages si aggiorna a ogni push su `main` e legge l'indirizzo del server dalla variabile di repository `API_URL`.
+Schema in `db/schema.sql`. La Edge Function va pubblicata con `verify_jwt: false`, perché controlla da sola i codici. Il codice di caricamento sta come impronta SHA-256 in `app_settings`; l'originale è in `.env.local`, fuori da git. GitHub Pages si aggiorna a ogni push su `main` e legge l'indirizzo del server dalla variabile di repository `API_URL`.

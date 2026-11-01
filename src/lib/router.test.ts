@@ -46,11 +46,9 @@ describe('server', () => {
     }
   });
 
-  it('richiede il codice del gruppo quando è impostato', async () => {
-    await db.query(`insert into app_settings (key, value) values ('group_code_hash', $1)`, [sha256('amici')]);
+  it('per creare una stanza bastano nome e PIN', async () => {
     const input = { packId: 'cena-di-prova', mode: 'nomaster', name: 'Ada', pin: '1234' };
-    expect((await send('/games', input)).status).toBe(403);
-    expect((await send('/games', { ...input, groupCode: 'amici' })).status).toBe(201);
+    expect((await send('/games', input)).status).toBe(201);
   });
 
   it('gioca attraverso gli indirizzi veri', async () => {

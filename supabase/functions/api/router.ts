@@ -41,12 +41,6 @@ async function requireAdmin(req: Request, db: Db) {
   if (!expected || !given || sha256(given) !== expected) throw new GameError('Codice di caricamento errato.', 401);
 }
 
-/** Senza un codice del gruppo impostato (sviluppo locale) chiunque può aprire una partita. */
-async function requireGroupCode(db: Db, given: unknown) {
-  const expected = await setting(db, 'group_code_hash');
-  if (expected && sha256(String(given ?? '')) !== expected) throw new GameError('Codice del gruppo errato.', 403);
-}
-
 async function body(req: Request) {
   try {
     return await req.json();
@@ -68,11 +62,8 @@ async function dispatch(req: Request, db: Db) {
       return json(await getPublicPack(db, second));
     case 'GET packs/:/assets/:':
       return image(await getPublicAsset(db, second, fourth));
-    case 'POST games': {
-      const input = await body(req);
-      await requireGroupCode(db, input.groupCode);
-      return json(await createGame(db, input), 201);
-    }
+    case 'POST games':
+      return json(await createGame(db, await body(req)), 201);
     case 'POST games/:/join':
       return json(await joinGame(db, second.toUpperCase(), await body(req)));
     case 'GET games/:/state': {
