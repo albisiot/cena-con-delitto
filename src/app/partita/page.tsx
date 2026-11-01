@@ -253,7 +253,7 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
   return (
     <>
       <div className="eyebrow">{view.title}</div>
-      <h1>{current ? current.title : 'Si aspetta il cast'}</h1>
+      <h1>{current ? current.title : view.dealt ? 'Personaggi assegnati' : 'Si aspetta il cast'}</h1>
 
       {!view.dealt && (
         <div className="card">
@@ -306,7 +306,12 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
         <div className="card">
           <h3>Prossimo: {next.title}</h3>
           {isMaster ? (
-            <ActionButton onClick={() => send({ type: 'advance' })}>Fai partire «{next.title}»</ActionButton>
+            <MasterAdvance
+              key={next.id}
+              title={next.title}
+              missingVotes={next.kind === 'finale' ? seated.filter((p) => !p.voted).map((p) => p.name) : []}
+              send={send}
+            />
           ) : view.mode === 'master' ? (
             <p className="muted">Fa partire il master.</p>
           ) : (
@@ -339,6 +344,7 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
 
       <div className="card">
         <h3>Al tavolo</h3>
+        {view.dealt && <p className="muted">Codice della stanza: <strong>{view.code}</strong></p>}
         {view.players.map((p) => (
           <PlayerRow key={p.id} player={p} view={view} send={send} />
         ))}
@@ -350,6 +356,22 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
           {view.events.slice(0, 6).map((e, i) => <p className="muted" key={i}>{e}</p>)}
         </div>
       )}
+    </>
+  );
+}
+
+/** Aprire una busta o il finale non si può annullare: serve una conferma, così un doppio tocco non salta un atto. */
+function MasterAdvance({ title, missingVotes, send }: { title: string; missingVotes: string[]; send: Send }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) return <button onClick={() => setConfirming(true)}>Fai partire «{title}»</button>;
+  return (
+    <>
+      <p>Tutti i telefoni passano a «{title}» e non si può tornare indietro.</p>
+      {missingVotes.length > 0 && (
+        <p className="error" role="alert">Non hanno ancora votato: {missingVotes.join(', ')}. Dopo non potranno più farlo.</p>
+      )}
+      <ActionButton onClick={() => send({ type: 'advance' })}>Sì, fai partire</ActionButton>
+      <button className="ghost" onClick={() => setConfirming(false)}>Annulla</button>
     </>
   );
 }
@@ -559,9 +581,14 @@ function Finale({ view, token, send }: { view: GameView; token: string; send: Se
   const canMark = view.mode === 'nomaster' || view.me.role === 'master';
   const ranked = [...results].sort((a, b) => b.points - a.points);
   const items = [
-    ...vote.fields.filter((f) => f.points > 0).map((f) => ({ id: f.id, label: f.label })),
-    ...(vote.missionPoints ? [{ id: 'mission', label: 'Missione riuscita' }] : []),
+    ...vote.fields.filter((f) => f.points > 0).map((f) => ({ id: f.id, label: `Risposta giusta (+${f.points}): ${f.label}` })),
+    ...(vote.missionPoints ? [{ id: 'mission', label: `Missione riuscita (+${vote.missionPoints})` }] : []),
   ];
+  const accusers = results.filter((r) => r.accused !== null);
+  const awardVotes = new Map<number, number>();
+  for (const r of results) if (r.award !== null) awardVotes.set(r.award, (awardVotes.get(r.award) ?? 0) + 1);
+  const topAward = Math.max(0, ...awardVotes.values());
+  const awardWinners = [...awardVotes].filter(([, votes]) => votes === topAward).map(([n]) => castOf(view, n)?.name);
   return (
     <>
       <div className="eyebrow">La verità</div>
@@ -570,7 +597,15 @@ function Finale({ view, token, send }: { view: GameView; token: string; send: Se
         <Blocks blocks={view.finale ?? []} assetBase={assetBase(view)} token={token} />
       </div>
       <div className="card">
+        <h2>I voti</h2>
+        <p>Hanno indovinato il colpevole: <strong>{accusers.filter((r) => r.accusedRight).length} su {accusers.length}</strong>.</p>
+        {vote.awardLabel && awardWinners.length > 0 && (
+          <p>{vote.awardLabel}: <strong>{awardWinners.join(', ')}</strong> ({topAward} {topAward === 1 ? 'voto' : 'voti'}).</p>
+        )}
+      </div>
+      <div className="card">
         <h2>Classifica</h2>
+        {canMark && <p className="muted">Apri ogni nome per leggere le risposte e assegnare i punti.</p>}
         {ranked.map((r) => (
           <details key={r.playerId}>
             <summary>
