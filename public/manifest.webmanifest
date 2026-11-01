@@ -3,7 +3,7 @@
   "short_name": "Cena",
   "start_url": "../",
   "display": "standalone",
-  "background_color": "#14110f",
-  "theme_color": "#14110f",
+  "background_color": "#e6d5a8",
+  "theme_color": "#cfba85",
   "lang": "it"
 }

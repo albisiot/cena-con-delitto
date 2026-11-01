@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AuthPanel } from '@/components/AuthPanel';
+import { Masthead } from '@/components/Masthead';
 import { type Account, api, chooseGuest, fetchAccount, isGuest, lastGame, loadAccountToken } from '@/lib/client';
 import { fitFor, type PlayerRange } from '@/lib/players';
 
@@ -40,8 +41,7 @@ export default function Home() {
 function Welcome({ onLogin, onGuest }: { onLogin: () => void; onGuest: () => void }) {
   return (
     <main className="page">
-      <div className="eyebrow">Il nostro archivio</div>
-      <h1>Cena con delitto</h1>
+      <Masthead />
       <p className="muted">Ogni telefono mostra solo ciò che quella persona può sapere.</p>
       <AuthPanel onDone={onLogin} />
       <button className="ghost" onClick={onGuest}>Gioca come ospite</button>
@@ -75,8 +75,7 @@ function Lobby({ account }: { account: Account | null }) {
 
   return (
     <main className="page">
-      <div className="eyebrow">Il nostro archivio</div>
-      <h1>Cena con delitto</h1>
+      <Masthead />
       <p>
         <Link href="/account">
           {account
@@ -102,6 +101,7 @@ function Lobby({ account }: { account: Account | null }) {
         <label htmlFor="code">Codice della stanza</label>
         <input
           id="code"
+          className="code-input"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           autoCapitalize="characters"

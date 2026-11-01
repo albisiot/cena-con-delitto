@@ -96,18 +96,11 @@ function GameLoader() {
   if (!token) return <JoinForm code={code} onJoined={(t) => { saveSession(code, t); setToken(t); }} />;
   if (!view) return <main className="page">{error ? <p className="error">{error}</p> : <p className="muted">Carico…</p>}</main>;
 
-  const theme = view.public.theme;
-  const style = {
-    ...(theme?.bg ? { '--bg': theme.bg } : {}),
-    ...(theme?.fg ? { '--fg': theme.fg } : {}),
-    ...(theme?.accent ? { '--accent': theme.accent } : {}),
-    background: 'var(--bg)',
-    color: 'var(--fg)',
-    minHeight: '100dvh',
-  } as React.CSSProperties;
+  // Il colore della cena resta una fascia in alto: testi e fondi non dipendono dal suo contrasto.
+  const accent = view.public.theme?.accent;
 
   return (
-    <div style={style}>
+    <div style={accent ? { borderTop: `6px solid ${accent}` } : undefined}>
       {error && <p className="error" role="status" style={{ textAlign: 'center' }}>{error}</p>}
       <Game view={view} token={token} send={send} />
     </div>
@@ -350,7 +343,7 @@ function Evening({ view, token, send, onOpenDocuments }: {
       )}
 
       {view.dealt && !atEnd && (
-        <div className="card">
+        <div className="card next">
           <h3>Prossimo: {next.title}</h3>
           {documentsLeft > 0 ? (
             <>
@@ -563,6 +556,7 @@ function MyCard({ view, token }: { view: GameView; token: string }) {
       )}
       {view.cards.length > 0 && !revealed && (
         <div className="card cover-screen">
+          <div className="stamp big" aria-hidden="true">Riservato</div>
           <p>Controlla che nessuno stia guardando.</p>
           <button onClick={() => setRevealed(true)}>Mostra la scheda</button>
         </div>
