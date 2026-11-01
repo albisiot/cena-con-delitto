@@ -3,10 +3,12 @@ import { errorKind, retryConnection } from './retry.ts';
 import { handleRequest } from './router.ts';
 import type { Db } from './types.ts';
 
+// Sotto carico Supabase avvia molte copie di questa funzione, e il database accetta poche connessioni:
+// ogni copia ne tiene una sola e la rilascia subito, altrimenti si arriva all'errore 53300 (troppe connessioni).
 const pool = new pg.Pool({
   connectionString: Deno.env.get('SUPABASE_DB_URL'),
-  max: 2,
-  idleTimeoutMillis: 10_000,
+  max: 1,
+  idleTimeoutMillis: 1_000,
   connectionTimeoutMillis: 8_000,
   ssl: { rejectUnauthorized: false },
 });

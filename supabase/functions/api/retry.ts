@@ -18,7 +18,7 @@ export function isConnectionError(err: unknown) {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Riprova solo se è caduto il collegamento. Va usato dove ripetere non può applicare due volte una modifica. */
-export async function retryConnection<T>(fn: () => Promise<T>, attempts = 4, delayMs = 150): Promise<T> {
+export async function retryConnection<T>(fn: () => Promise<T>, attempts = 6, delayMs = 200): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
