@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { Blocks } from '@/components/Blocks';
-import { api, saveSession } from '@/lib/client';
+import { type Account, api, fetchAccount, loadAccountToken, saveSession } from '@/lib/client';
 import type { PackPublic } from '@/lib/pack';
 
 export default function PackPage() {
@@ -23,16 +23,34 @@ function PackDetails() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [account, setAccount] = useState<Account | null>(null);
+  const myDinner = account?.dinners.find((d) => d.packId === id);
+
   useEffect(() => {
     api(`/api/packs/${id}`).then(setPack).catch((err) => setError(err.message));
+    fetchAccount().then((a) => {
+      setAccount(a);
+      if (a) setName((current) => current || a.username);
+    });
   }, [id]);
+
+  async function mark(played: boolean) {
+    setError('');
+    try {
+      setAccount(await api('/api/accounts/dinners', { body: { packId: id, played }, token: loadAccountToken() }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError('');
     try {
-      const out = await api('/api/games', { body: { packId: id, mode, name, pin, groupCode } });
+      const out = await api('/api/games', {
+        body: { packId: id, mode, name, pin, groupCode, accountToken: loadAccountToken() },
+      });
       saveSession(out.code, out.token);
       router.push(`/partita?code=${out.code}`);
     } catch (err) {
@@ -48,6 +66,17 @@ function PackDetails() {
       <Link href="/">← Tutte le cene</Link>
       <h1 style={{ marginTop: 16 }}>{pack.title}</h1>
       <p>{pack.public.tagline}</p>
+
+      {myDinner && (
+        <div className="card warning">
+          <p><strong>Questa cena l&apos;hai già fatta</strong>{myDinner.role === 'master' ? ', come master' : ''}.</p>
+          <p className="muted">Se la rigiochi conosci già la soluzione. Puoi sempre farla da master per un altro gruppo.</p>
+          {myDinner.source === 'manual' && <button className="ghost" onClick={() => mark(false)}>Non l&apos;ho fatta: togli il segno</button>}
+        </div>
+      )}
+      {account && !myDinner && (
+        <button className="ghost" style={{ marginBottom: 12 }} onClick={() => mark(true)}>L&apos;ho già giocata fuori dall&apos;app</button>
+      )}
 
       <div className="card">
         <h2>Il manuale</h2>
@@ -86,9 +115,13 @@ function PackDetails() {
         )}
         <label htmlFor="name">Il tuo nome</label>
         <input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={30} autoComplete="given-name" required />
-        <label htmlFor="pin">Scegli un PIN di 4 cifre</label>
-        <input id="pin" value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" pattern="\d{4}" maxLength={4} autoComplete="off" required />
-        <p className="muted" style={{ marginTop: 4 }}>Serve per rientrare se cambi telefono o chiudi la pagina.</p>
+        {!account && (
+          <>
+            <label htmlFor="pin">Scegli un PIN di 4 cifre</label>
+            <input id="pin" value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" pattern="\d{4}" maxLength={4} autoComplete="off" required />
+            <p className="muted" style={{ marginTop: 4 }}>Serve per rientrare se cambi telefono o chiudi la pagina.</p>
+          </>
+        )}
         <label htmlFor="group">Codice del gruppo</label>
         <input id="group" value={groupCode} onChange={(e) => setGroupCode(e.target.value)} autoComplete="off" />
         {error && <p className="error">{error}</p>}

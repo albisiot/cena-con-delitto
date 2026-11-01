@@ -9,6 +9,7 @@ App da telefono per giocare cene con delitto tra amici, con o senza master. L'au
 - Output di script, log ed errori di validazione non citano mai il contenuto di una cena.
 - Le query SQL dirette sul progetto non selezionano mai `packs.secret`, `pack_assets.data` o le risposte in `votes`.
 - Il repository è pubblico: niente cene vere, codici o password nei commit.
+- Lo storico degli account (`account_dinners`) dice solo quale cena e quando: mai personaggio, voti o soluzione.
 
 ## Come è fatta
 

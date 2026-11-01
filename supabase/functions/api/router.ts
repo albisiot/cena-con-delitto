@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { login, logout, markDinner, me, recover, register } from './accounts.ts';
 import {
   act, createGame, GameError, getAsset, getPublicAsset, getPublicPack, getState, joinGame, listPacks, saveAsset, savePack,
 } from './game.ts';
@@ -82,6 +83,21 @@ async function dispatch(req: Request, db: Db) {
       return json(await act(db, second.toUpperCase(), bearer(req), await body(req)));
     case 'GET games/:/assets/:':
       return image(await getAsset(db, second.toUpperCase(), bearer(req), fourth));
+  }
+
+  switch (`${req.method} ${parts.join('/')}`) {
+    case 'POST accounts':
+      return json(await register(db, await body(req)), 201);
+    case 'POST accounts/login':
+      return json(await login(db, await body(req)));
+    case 'POST accounts/recover':
+      return json(await recover(db, await body(req)));
+    case 'POST accounts/logout':
+      return json(await logout(db, bearer(req)));
+    case 'GET accounts/me':
+      return json(await me(db, bearer(req)));
+    case 'POST accounts/dinners':
+      return json(await markDinner(db, bearer(req), await body(req)));
   }
 
   if (req.method === 'PUT' && parts.join('/') === 'admin/packs') {

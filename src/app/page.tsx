@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, lastGame } from '@/lib/client';
+import { type Account, api, fetchAccount, lastGame } from '@/lib/client';
 
 type PackItem = { id: string; title: string; tagline: string; players: { min: number; ideal: number }; durationMinutes: number };
 
@@ -13,9 +13,15 @@ export default function Home() {
   const [code, setCode] = useState('');
   const [last, setLast] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [account, setAccount] = useState<Account | null>(null);
+  const [hidePlayed, setHidePlayed] = useState(false);
+
+  const played = new Set(account?.dinners.map((d) => d.packId));
+  const visible = packs?.filter((p) => !hidePlayed || !played.has(p.id));
 
   useEffect(() => {
     setLast(lastGame());
+    fetchAccount().then(setAccount);
     api<PackItem[]>('/api/packs').then(setPacks).catch((err) => setError(err.message));
   }, []);
 
@@ -24,6 +30,11 @@ export default function Home() {
       <div className="eyebrow">Il nostro archivio</div>
       <h1>Cena con delitto</h1>
       <p className="muted">Ogni telefono mostra solo ciò che quella persona può sapere.</p>
+      <p>
+        <Link href="/account">
+          {account ? `${account.username}: ${account.dinners.length === 1 ? '1 cena fatta' : `${account.dinners.length} cene fatte`}` : 'Accedi o crea un account'}
+        </Link>
+      </p>
 
       {last && (
         <Link className="card" href={`/partita?code=${last}`}>
@@ -57,10 +68,18 @@ export default function Home() {
       {packs?.length === 0 && (
         <p className="muted">Nessuna cena ancora. <Link href="/carica">Caricane una</Link>.</p>
       )}
-      {packs?.map((p) => (
+      {account && played.size > 0 && (
+        <label className="choice">
+          <input type="checkbox" checked={hidePlayed} onChange={(e) => setHidePlayed(e.target.checked)} />
+          <span>Nascondi quelle che ho già fatto</span>
+        </label>
+      )}
+      {packs && packs.length > 0 && visible?.length === 0 && <p className="muted">Le hai già fatte tutte.</p>}
+      {visible?.map((p) => (
         <Link className="card" key={p.id} href={`/cena?id=${p.id}`}>
           <h3>{p.title}</h3>
           <p className="muted">{p.tagline}</p>
+          {played.has(p.id) && <><span className="badge on">Già fatta</span>{' '}</>}
           <span className="badge">{p.players.ideal} persone</span>{' '}
           <span className="badge">{p.durationMinutes} min</span>
         </Link>

@@ -12,15 +12,23 @@ export class GameError extends Error {
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const PIN_LOCK_AFTER = 5;
 
-const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-function hashPin(pin: string, salt = randomBytes(16).toString('hex')) {
-  return `${salt}:${scryptSync(pin, salt, 32).toString('hex')}`;
+export function hashSecret(secret: string, salt = randomBytes(16).toString('hex')) {
+  return `${salt}:${scryptSync(secret, salt, 32).toString('hex')}`;
 }
 
-function pinMatches(pin: string, stored: string) {
+export function secretMatches(secret: string, stored: string) {
   const [salt, hash] = stored.split(':');
-  return timingSafeEqual(scryptSync(pin, salt, 32), Buffer.from(hash, 'hex'));
+  return timingSafeEqual(scryptSync(secret, salt, 32), Buffer.from(hash, 'hex'));
+}
+
+export async function accountFromToken(q: Queryable, token: unknown) {
+  if (typeof token !== 'string' || !token) return null;
+  const [row] = await q.query<{ account_id: string }>(
+    'select account_id from account_sessions where token_hash = $1', [hashToken(token)],
+  );
+  return row?.account_id ?? null;
 }
 
 function cleanName(name: unknown) {
@@ -34,6 +42,10 @@ function cleanPin(pin: unknown) {
   if (!/^\d{4}$/.test(out)) throw new GameError('Il PIN deve avere 4 cifre.');
   return out;
 }
+
+/** Con un account si rientra da lì, quindi il PIN è facoltativo. */
+const pinOrRandom = (pin: unknown, accountId: string | null) =>
+  !pin && accountId ? String(randomInt(10000)).padStart(4, '0') : cleanPin(pin);
 
 function shuffle<T>(items: T[]) {
   const a = [...items];
@@ -76,15 +88,27 @@ const bump = (q: Queryable, code: string) => q.query('update games set version =
 const logEvent = (q: Queryable, code: string, text: string) =>
   q.query('insert into events (game_code, text) values ($1, $2)', [code, text]);
 
-async function addPlayer(q: Queryable, code: string, name: string, pin: string, role: 'player' | 'master', isHost: boolean) {
+async function addPlayer(
+  q: Queryable, code: string, name: string, pin: string, role: 'player' | 'master', isHost: boolean, accountId: string | null,
+) {
   const token = randomBytes(32).toString('base64url');
   const id = randomUUID();
   await q.query(
-    `insert into players (id, game_code, name, name_key, pin_hash, token_hash, role, is_host)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [id, code, name, name.toLowerCase(), hashPin(pin), hashToken(token), role, isHost],
+    `insert into players (id, game_code, name, name_key, pin_hash, token_hash, role, is_host, account_id)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [id, code, name, name.toLowerCase(), hashSecret(pin), hashToken(token), role, isHost, accountId],
   );
   return { token, playerId: id };
+}
+
+/** La cena conta come fatta da quando si può leggere qualcosa di segreto: da lì in poi non si può più rigiocare alla pari. */
+async function recordParticipation(q: Queryable, code: string, packId: string) {
+  await q.query(
+    `insert into account_dinners (account_id, pack_id, role, source)
+     select account_id, $2, role, 'game' from players where game_code = $1 and account_id is not null
+     on conflict (account_id, pack_id) do update set source = 'game', role = excluded.role`,
+    [code, packId],
+  );
 }
 
 export async function savePack(db: Db, pack: Pack) {
@@ -128,11 +152,14 @@ export async function getPublicPack(db: Db, id: string) {
   return rows[0];
 }
 
-export async function createGame(db: Db, input: { packId: string; mode: string; name: unknown; pin: unknown }) {
+export async function createGame(
+  db: Db, input: { packId: string; mode: string; name: unknown; pin?: unknown; accountToken?: unknown },
+) {
   const mode = input.mode === 'master' ? 'master' : 'nomaster';
   const name = cleanName(input.name);
-  const pin = cleanPin(input.pin);
   return db.tx(async (q) => {
+    const accountId = await accountFromToken(q, input.accountToken);
+    const pin = pinOrRandom(input.pin, accountId);
     await loadPack(q, input.packId);
     let code = '';
     for (let tries = 0; tries < 10 && !code; tries++) {
@@ -142,25 +169,49 @@ export async function createGame(db: Db, input: { packId: string; mode: string; 
     }
     if (!code) throw new GameError('Riprova tra un momento.', 503);
     await q.query('insert into games (code, pack_id, mode) values ($1, $2, $3)', [code, input.packId, mode]);
-    const { token } = await addPlayer(q, code, name, pin, mode === 'master' ? 'master' : 'player', true);
+    const { token } = await addPlayer(q, code, name, pin, mode === 'master' ? 'master' : 'player', true, accountId);
+    // Il master vede la soluzione appena la stanza esiste.
+    if (mode === 'master') await recordParticipation(q, code, input.packId);
     return { code, token };
   });
 }
 
-export async function joinGame(db: Db, code: string, input: { name: unknown; pin: unknown }) {
+export async function joinGame(db: Db, code: string, input: { name: unknown; pin?: unknown; accountToken?: unknown }) {
   const name = cleanName(input.name);
-  const pin = cleanPin(input.pin);
   return db.tx(async (q) => {
     const game = await loadGame(q, code, true);
-    const [existing] = await q.query<{ id: string; pin_hash: string; failed_pins: number; locked_until: Date | null }>(
-      'select id, pin_hash, failed_pins, locked_until from players where game_code = $1 and name_key = $2',
+    const accountId = await accountFromToken(q, input.accountToken);
+    const reissue = async (playerId: string) => {
+      const token = randomBytes(32).toString('base64url');
+      await q.query('update players set token_hash = $2, failed_pins = 0, locked_until = null where id = $1', [
+        playerId, hashToken(token),
+      ]);
+      return { code, token };
+    };
+    if (accountId) {
+      const [mine] = await q.query<{ id: string }>(
+        'select id from players where game_code = $1 and account_id = $2', [code, accountId],
+      );
+      if (mine) return reissue(mine.id);
+    }
+    const [existing] = await q.query<{
+      id: string; pin_hash: string; failed_pins: number; locked_until: Date | null; account_id: string | null;
+    }>(
+      'select id, pin_hash, failed_pins, locked_until, account_id from players where game_code = $1 and name_key = $2',
       [code, name.toLowerCase()],
     );
+    if (existing && !input.pin && accountId) {
+      throw new GameError('Questo nome è già in partita: scegline un altro.', 409);
+    }
+    const pin = pinOrRandom(input.pin, accountId);
+    const pack = await loadPack(q, game.pack_id);
+    const cardsIndex = pack.public.program.findIndex((s) => s.kind === 'cards');
+    const secretsOpen = game.step >= cardsIndex;
     if (existing) {
       if (existing.locked_until && new Date(existing.locked_until) > new Date()) {
         throw new GameError('Troppi tentativi: riprova tra qualche minuto.', 429);
       }
-      if (!pinMatches(pin, existing.pin_hash)) {
+      if (!secretMatches(pin, existing.pin_hash)) {
         const failed = existing.failed_pins + 1;
         const lock = failed >= PIN_LOCK_AFTER;
         await q.query(
@@ -171,13 +222,14 @@ export async function joinGame(db: Db, code: string, input: { name: unknown; pin
         );
         return { error: 'Questo nome è già in partita e il PIN non corrisponde.' };
       }
-      const token = randomBytes(32).toString('base64url');
-      await q.query('update players set token_hash = $2, failed_pins = 0, locked_until = null where id = $1', [
-        existing.id, hashToken(token),
-      ]);
-      return { code, token };
+      if (accountId && !existing.account_id) {
+        await q.query('update players set account_id = $2 where id = $1', [existing.id, accountId]);
+        if (secretsOpen) await recordParticipation(q, code, game.pack_id);
+      }
+      return reissue(existing.id);
     }
-    const { token } = await addPlayer(q, code, name, pin, 'player', false);
+    const { token } = await addPlayer(q, code, name, pin, 'player', false, accountId);
+    if (secretsOpen) await recordParticipation(q, code, game.pack_id);
     await bump(q, game.code);
     return { code, token };
   }).then((out) => {
@@ -211,8 +263,9 @@ export function buildView(input: {
   votes: { player_id: string; accused: number | null; answers: Record<string, string>; award: number | null }[];
   marks: { player_id: string; item: string }[];
   events: { text: string; at: Date | string }[];
+  alreadyPlayed: string[];
 }) {
-  const { game, pack, me, players, votes, marks, events } = input;
+  const { game, pack, me, players, votes, marks, events, alreadyPlayed } = input;
   const program = pack.public.program;
   const isMaster = me.role === 'master';
   const stepIndex = (kind: string) => program.findIndex((s) => s.kind === kind);
@@ -253,6 +306,8 @@ export function buildView(input: {
       cards: p.cards,
       ready: p.ready_step === game.step,
       voted: votes.some((v) => v.player_id === p.id),
+      // Solo prima di iniziare: dopo, la partita stessa finisce nello storico di tutti.
+      alreadyPlayed: !game.dealt && alreadyPlayed.includes(p.id),
     })),
     readyNeeded: majorityOf(seated.length),
     myVote: myVote ? { accused: myVote.accused, answers: myVote.answers, award: myVote.award } : null,
@@ -311,7 +366,12 @@ async function loadView(q: Queryable, code: string, me: PlayerRow) {
   const votes = await q.query<any>('select player_id, accused, answers, award from votes where game_code = $1', [code]);
   const marks = await q.query<any>('select player_id, item from score_marks where game_code = $1', [code]);
   const events = await q.query<any>('select text, at from events where game_code = $1 order by id desc limit 20', [code]);
-  return buildView({ game, pack, me, players, votes, marks, events });
+  const played = await q.query<{ id: string }>(
+    `select p.id from players p join account_dinners d on d.account_id = p.account_id and d.pack_id = $2
+     where p.game_code = $1 and p.role = 'player'`,
+    [code, game.pack_id],
+  );
+  return buildView({ game, pack, me, players, votes, marks, events, alreadyPlayed: played.map((r) => r.id) });
 }
 
 export async function getState(db: Db, code: string, token: string | null, knownVersion?: number) {
@@ -349,6 +409,9 @@ async function readAsset(db: Db, packId: string, assetId: string) {
 
 async function moveToStep(q: Queryable, game: GameRow, pack: { public: PackPublic }, next: number) {
   await q.query('update games set step = $2 where code = $1', [game.code, next]);
+  if (next >= pack.public.program.findIndex((s) => s.kind === 'cards')) {
+    await recordParticipation(q, game.code, game.pack_id);
+  }
   await logEvent(q, game.code, `Si passa a: ${pack.public.program[next].title}`);
 }
 
@@ -449,7 +512,7 @@ export async function act(db: Db, code: string, token: string | null, action: an
         if (!target) throw new GameError('Persona non trovata.');
         await q.query(
           'update players set pin_hash = $2, token_hash = $3, failed_pins = 0, locked_until = null where id = $1',
-          [target.id, hashPin(cleanPin(action.pin)), hashToken(randomBytes(32).toString('base64url'))],
+          [target.id, hashSecret(cleanPin(action.pin)), hashToken(randomBytes(32).toString('base64url'))],
         );
         // Annuncio pubblico: reimpostare un PIN permetterebbe di sbirciare la scheda altrui.
         await logEvent(q, code, `Attenzione: ${me.name} ha reimpostato il PIN di ${target.name}.`);

@@ -4,12 +4,16 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Blocks } from '@/components/Blocks';
-import { api, forgetToken, loadNotes, loadToken, saveNotes, saveSession } from '@/lib/client';
+import {
+  type Account, api, fetchAccount, forgetToken, loadAccountToken, loadNotes, loadToken, saveNotes, saveSession,
+} from '@/lib/client';
 import type { Block, CastMember, PackPublic } from '@/lib/pack';
 
 const POLL_MS = 4000;
 
-type Player = { id: string; name: string; role: string; isHost: boolean; cards: number[]; ready: boolean; voted: boolean };
+type Player = {
+  id: string; name: string; role: string; isHost: boolean; cards: number[]; ready: boolean; voted: boolean; alreadyPlayed: boolean;
+};
 type Envelope = { id: string; title: string; documents: { id: string; title: string; blocks: Block[] }[] };
 type Result = {
   playerId: string; name: string; accused: number | null; answers: Record<string, string>;
@@ -113,6 +117,15 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<Account | null>(null);
+
+  useEffect(() => {
+    fetchAccount().then((a) => {
+      setAccount(a);
+      if (a) setName((current) => current || a.username);
+    });
+  }, []);
+
   return (
     <main className="page">
       <Link href="/">← Inizio</Link>
@@ -126,7 +139,7 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
           setBusy(true);
           setError('');
           try {
-            const out = await api(`/api/games/${code}/join`, { body: { name, pin } });
+            const out = await api(`/api/games/${code}/join`, { body: { name, pin, accountToken: loadAccountToken() } });
             onJoined(out.token);
           } catch (err) {
             setError((err as Error).message);
@@ -136,9 +149,16 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
       >
         <label htmlFor="name">Il tuo nome</label>
         <input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={30} autoComplete="given-name" required />
-        <label htmlFor="pin">PIN di 4 cifre</label>
-        <input id="pin" value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" pattern="\d{4}" maxLength={4} autoComplete="off" required />
-        <p className="muted" style={{ marginTop: 4 }}>Se è la prima volta, scegline uno. Se stai rientrando, usa lo stesso nome e PIN.</p>
+        {account ? (
+          <p className="muted" style={{ marginTop: 8 }}>Entri come {account.username}: la cena finirà nel tuo storico.</p>
+        ) : (
+          <>
+            <label htmlFor="pin">PIN di 4 cifre</label>
+            <input id="pin" value={pin} onChange={(e) => setPin(e.target.value)} inputMode="numeric" pattern="\d{4}" maxLength={4} autoComplete="off" required />
+            <p className="muted" style={{ marginTop: 4 }}>Se è la prima volta, scegline uno. Se stai rientrando, usa lo stesso nome e PIN.</p>
+            <p className="muted"><Link href="/account">Accedi</Link> per salvare questa cena tra quelle che hai fatto.</p>
+          </>
+        )}
         {error && <p className="error">{error}</p>}
         <button disabled={busy}>Entra</button>
       </form>
@@ -248,6 +268,11 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
               Distribuisci i personaggi ({seated.length} {seated.length === 1 ? 'persona' : 'persone'})
             </ActionButton>
           ) : <p className="muted">Quando ci siete tutti, chi ha creato la stanza distribuisce i personaggi.</p>}
+          {seated.some((p) => p.alreadyPlayed) && (
+            <p className="error" role="status" style={{ marginTop: 8 }}>
+              Hanno già fatto questa cena: {seated.filter((p) => p.alreadyPlayed).map((p) => p.name).join(', ')}.
+            </p>
+          )}
           {seated.length < view.public.players.min && (
             <p className="muted" style={{ marginTop: 8 }}>Servono almeno {view.public.players.min} persone.</p>
           )}

@@ -14,12 +14,35 @@ export async function api<T = any>(path: string, options: { method?: string; bod
   return data as T;
 }
 
+export type Account = {
+  username: string;
+  dinners: { packId: string; title: string; role: string; source: string; at: string }[];
+};
+
+const ACCOUNT_KEY = 'cena.account';
+
 const tokenKey = (code: string) => `cena.token.${code}`;
 
 function safely<T>(fn: () => T): T | null {
   try {
     return fn();
   } catch {
+    return null;
+  }
+}
+
+export const loadAccountToken = () => safely(() => localStorage.getItem(ACCOUNT_KEY)) ?? undefined;
+export const saveAccountToken = (token: string) => safely(() => localStorage.setItem(ACCOUNT_KEY, token));
+export const forgetAccountToken = () => safely(() => localStorage.removeItem(ACCOUNT_KEY));
+
+/** L'account di questo telefono, oppure null. Se la sessione non vale più la dimentica. */
+export async function fetchAccount(): Promise<Account | null> {
+  const token = loadAccountToken();
+  if (!token) return null;
+  try {
+    return await api<Account>('/api/accounts/me', { token });
+  } catch (err) {
+    if ((err as { status?: number }).status === 401) forgetAccountToken();
     return null;
   }
 }

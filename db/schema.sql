@@ -65,6 +65,39 @@ create table if not exists events (
   text text not null
 );
 
+create table if not exists accounts (
+  id text primary key,
+  username text not null unique,
+  password_hash text not null,
+  recovery_hash text not null,
+  failed_logins int not null default 0,
+  locked_until timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists account_sessions (
+  token_hash text primary key,
+  account_id text not null references accounts(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- Solo quale cena e quando: mai personaggio, voti o soluzione.
+create table if not exists account_dinners (
+  account_id text not null references accounts(id) on delete cascade,
+  pack_id text not null references packs(id) on delete cascade,
+  role text not null check (role in ('player', 'master')),
+  source text not null check (source in ('game', 'manual')),
+  at timestamptz not null default now(),
+  primary key (account_id, pack_id)
+);
+
+alter table players add column if not exists account_id text references accounts(id) on delete set null;
+create unique index if not exists players_account on players(game_code, account_id) where account_id is not null;
+
+alter table accounts enable row level security;
+alter table account_sessions enable row level security;
+alter table account_dinners enable row level security;
+
 -- Solo impronte SHA-256 dei codici di caricamento e del gruppo, mai i codici in chiaro.
 create table if not exists app_settings (
   key text primary key,
