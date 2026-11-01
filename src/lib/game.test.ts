@@ -199,6 +199,82 @@ describe('nessuno spoiler', () => {
   });
 });
 
+describe('documenti uno alla volta', () => {
+  const twoDocs = structuredClone(pack);
+  twoDocs.id = 'cena-due-documenti';
+  twoDocs.secret.envelopes[0].documents = [
+    { id: 'a1', title: 'SEGRETO_DOC_1', blocks: [{ t: 'p', text: 'SEGRETO_TESTO_1' }] },
+    { id: 'a2', title: 'SEGRETO_DOC_2', blocks: [{ t: 'img', asset: 'foto-a' }] },
+    { id: 'a3', title: 'SEGRETO_DOC_3', blocks: [{ t: 'p', text: 'SEGRETO_TESTO_3' }] },
+  ];
+
+  async function atFirstEnvelope(mode: 'nomaster' | 'master' = 'nomaster') {
+    await savePack(db, twoDocs);
+    await saveAsset(db, twoDocs.id, 'foto-a', 'image/png', 'AAAA');
+    const first = await createGame(db, { packId: twoDocs.id, mode, name: 'Primo', pin: '1111' });
+    code = first.code;
+    tokens = mode === 'master' ? [] : [first.token];
+    for (let i = tokens.length; i < 4; i++) {
+      tokens.push((await joinGame(db, code, { name: `Giocatore ${i}`, pin: '2222' })).token);
+    }
+    if (mode === 'master') {
+      await act(db, code, first.token, { type: 'deal' });
+      for (let i = 0; i < 3; i++) await act(db, code, first.token, { type: 'advance' });
+    } else {
+      await act(db, code, tokens[0], { type: 'deal' });
+      await goToStep('envelope');
+    }
+    return first.token;
+  }
+
+  it('aprendo la busta si vede solo il primo documento, il resto arriva dopo', async () => {
+    await atFirstEnvelope();
+    const start = await stateOf(tokens[1]);
+    expect(start.currentEnvelope).toEqual({ id: 'A', shown: 1, total: 3 });
+    expect(text(start)).toContain('SEGRETO_DOC_1');
+    expect(text(start)).not.toContain('SEGRETO_DOC_2');
+    expect(text(start)).not.toContain('SEGRETO_DOC_3');
+    await expect(getAsset(db, code, tokens[1], 'foto-a')).rejects.toThrow();
+
+    await act(db, code, tokens[1], { type: 'nextDocument', expected: 1 });
+    const second = await stateOf(tokens[2]);
+    expect(text(second)).toContain('SEGRETO_DOC_2');
+    expect(text(second)).not.toContain('SEGRETO_DOC_3');
+    expect((await getAsset(db, code, tokens[2], 'foto-a')).mime).toBe('image/png');
+  });
+
+  it('due tocchi insieme non fanno saltare un documento', async () => {
+    await atFirstEnvelope();
+    await act(db, code, tokens[0], { type: 'nextDocument', expected: 1 });
+    await act(db, code, tokens[1], { type: 'nextDocument', expected: 1 });
+    expect((await stateOf(tokens[0])).currentEnvelope.shown).toBe(2);
+  });
+
+  it('non si avanza finché non sono usciti tutti, e poi la busta resta intera', async () => {
+    await atFirstEnvelope();
+    await expect(act(db, code, tokens[0], { type: 'ready' })).rejects.toThrow('tutti i documenti');
+    await act(db, code, tokens[0], { type: 'nextDocument', expected: 1 });
+    await act(db, code, tokens[0], { type: 'nextDocument', expected: 2 });
+    await act(db, code, tokens[0], { type: 'nextDocument', expected: 3 });
+    expect((await stateOf(tokens[0])).currentEnvelope).toEqual({ id: 'A', shown: 3, total: 3 });
+    for (const t of tokens.slice(0, 3)) await act(db, code, t, { type: 'ready' });
+    const next = await stateOf(tokens[0]);
+    expect(next.currentEnvelope.id).toBe('B');
+    expect(next.envelopes[0].documents).toHaveLength(3);
+    expect(next.envelopes[1].documents).toHaveLength(1);
+  });
+
+  it('con il master i documenti li fa passare solo lui, che li vede già tutti', async () => {
+    const master = await atFirstEnvelope('master');
+    await expect(act(db, code, tokens[0], { type: 'nextDocument', expected: 1 })).rejects.toThrow('master');
+    await expect(act(db, code, master, { type: 'advance' })).rejects.toThrow('tutti i documenti');
+    expect(text(await getState(db, code, master))).toContain('SEGRETO_DOC_3');
+    expect(text(await stateOf(tokens[0]))).not.toContain('SEGRETO_DOC_2');
+    await act(db, code, master, { type: 'nextDocument', expected: 1 });
+    expect(text(await stateOf(tokens[0]))).toContain('SEGRETO_DOC_2');
+  });
+});
+
 describe('con il master', () => {
   it('il master vede tutto e fa avanzare, i giocatori no', async () => {
     const master = await table('master');

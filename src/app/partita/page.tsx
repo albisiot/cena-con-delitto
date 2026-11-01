@@ -10,6 +10,7 @@ import {
 import type { Block, CastMember, PackPublic } from '@/lib/pack';
 
 const POLL_MS = 4000;
+const CARD_COVER_MS = 2 * 60 * 1000;
 
 type Player = {
   id: string; name: string; role: string; isHost: boolean; cards: number[]; ready: boolean; voted: boolean; alreadyPlayed: boolean;
@@ -28,6 +29,7 @@ type GameView = {
   events: string[];
   cards: { n: number; blocks: Block[] }[];
   envelopes: Envelope[];
+  currentEnvelope: { id: string; shown: number; total: number } | null;
   finale: Block[] | null;
   culprit?: number;
   results: Result[] | null;
@@ -169,8 +171,34 @@ function JoinForm({ code, onJoined }: { code: string; onJoined: (token: string) 
 type Send = (action: Record<string, unknown>) => Promise<void>;
 type Tab = 'serata' | 'scheda' | 'documenti' | 'taccuino' | 'voto' | 'finale' | 'master';
 
+/** Tiene acceso lo schermo durante la partita. Dove il telefono non lo permette, resta tutto come prima. */
+function useKeepScreenOn() {
+  useEffect(() => {
+    let lock: WakeLockSentinel | null = null;
+    let stopped = false;
+    const acquire = async () => {
+      if (document.visibilityState !== 'visible' || !('wakeLock' in navigator)) return;
+      try {
+        const next = await navigator.wakeLock.request('screen');
+        if (stopped) next.release();
+        else lock = next;
+      } catch {
+        // Batteria scarica o permesso negato: si gioca lo stesso.
+      }
+    };
+    acquire();
+    document.addEventListener('visibilitychange', acquire);
+    return () => {
+      stopped = true;
+      document.removeEventListener('visibilitychange', acquire);
+      lock?.release().catch(() => {});
+    };
+  }, []);
+}
+
 function Game({ view, token, send }: { view: GameView; token: string; send: Send }) {
   const [tab, setTab] = useState<Tab>('serata');
+  useKeepScreenOn();
   const isMaster = view.me.role === 'master';
   const stepKind = view.step >= 0 ? view.public.program[view.step]?.kind : null;
 
@@ -188,9 +216,9 @@ function Game({ view, token, send }: { view: GameView; token: string; send: Send
   return (
     <>
       <main className="page">
-        {active === 'serata' && <Evening view={view} token={token} send={send} />}
+        {active === 'serata' && <Evening view={view} token={token} send={send} onOpenDocuments={() => setTab('documenti')} />}
         {active === 'scheda' && <MyCard view={view} token={token} />}
-        {active === 'documenti' && <Documents view={view} token={token} />}
+        {active === 'documenti' && <Documents view={view} token={token} send={send} />}
         {active === 'taccuino' && <Notebook code={view.code} />}
         {active === 'voto' && <VoteForm view={view} send={send} />}
         {active === 'finale' && <Finale view={view} token={token} send={send} />}
@@ -239,7 +267,23 @@ function ActionButton({ onClick, className, disabled, children }: {
   );
 }
 
-function Evening({ view, token, send }: { view: GameView; token: string; send: Send }) {
+function InviteButton({ view }: { view: GameView }) {
+  const invite = async () => {
+    const url = window.location.href;
+    const text = `Vieni a giocare a «${view.title}». Il codice della stanza è ${view.code}.`;
+    if (navigator.share) {
+      // Se chi invita annulla la condivisione non c'è nulla da fare.
+      await navigator.share({ title: view.title, text, url }).catch(() => {});
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, '_blank', 'noopener');
+    }
+  };
+  return <button className="ghost" onClick={invite}>Invita</button>;
+}
+
+function Evening({ view, token, send, onOpenDocuments }: {
+  view: GameView; token: string; send: Send; onOpenDocuments: () => void;
+}) {
   const program = view.public.program;
   const isMaster = view.me.role === 'master';
   const seated = view.players.filter((p) => p.role === 'player');
@@ -248,6 +292,7 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
   const atEnd = !next;
   const readyCount = seated.filter((p) => p.ready).length;
   const notReady = seated.filter((p) => !p.ready).map((p) => p.name);
+  const documentsLeft = view.currentEnvelope ? view.currentEnvelope.total - view.currentEnvelope.shown : 0;
   const canDeal = !view.dealt && (isMaster || view.me.isHost);
   const votedCount = seated.filter((p) => p.voted).length;
 
@@ -264,6 +309,7 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
             Chi deve giocare lo inserisce nella pagina iniziale.
             {view.mode === 'master' ? ' Tu fai il master: non ricevi una scheda.' : ''}
           </p>
+          <InviteButton view={view} />
           {canDeal ? (
             <ActionButton onClick={() => send({ type: 'deal' })} disabled={seated.length < view.public.players.min}>
               Distribuisci i personaggi ({seated.length} {seated.length === 1 ? 'persona' : 'persone'})
@@ -306,7 +352,14 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
       {view.dealt && !atEnd && (
         <div className="card">
           <h3>Prossimo: {next.title}</h3>
-          {isMaster ? (
+          {documentsLeft > 0 ? (
+            <>
+              <p className="muted">
+                Prima leggete tutti i documenti della busta: siete al {view.currentEnvelope!.shown} di {view.currentEnvelope!.total}.
+              </p>
+              <button onClick={onOpenDocuments}>Vai ai documenti</button>
+            </>
+          ) : isMaster ? (
             <MasterAdvance
               key={next.id}
               title={next.title}
@@ -354,7 +407,12 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
 
       <div className="card">
         <h3>Al tavolo</h3>
-        {view.dealt && <p className="muted">Codice della stanza: <strong>{view.code}</strong></p>}
+        {view.dealt && (
+          <>
+            <p className="muted">Codice della stanza: <strong>{view.code}</strong></p>
+            <InviteButton view={view} />
+          </>
+        )}
         {view.players.map((p) => (
           <PlayerRow key={p.id} player={p} view={view} send={send} />
         ))}
@@ -471,12 +529,28 @@ function MyCharacter({ view }: { view: GameView }) {
 function MyCard({ view, token }: { view: GameView; token: string }) {
   const [revealed, setRevealed] = useState(false);
 
-  // La scheda si richiude da sola appena il telefono viene posato o cambia app.
+  // La scheda si richiude da sola appena si cambia app.
   useEffect(() => {
     const hide = () => { if (document.visibilityState !== 'visible') setRevealed(false); };
     document.addEventListener('visibilitychange', hide);
     return () => document.removeEventListener('visibilitychange', hide);
   }, []);
+
+  // Lo schermo resta acceso: una scheda dimenticata aperta sul tavolo deve coprirsi da sola.
+  useEffect(() => {
+    if (!revealed) return;
+    let timer = setTimeout(() => setRevealed(false), CARD_COVER_MS);
+    const touched = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setRevealed(false), CARD_COVER_MS);
+    };
+    const events = ['pointerdown', 'scroll', 'keydown'];
+    events.forEach((name) => window.addEventListener(name, touched, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, touched));
+    };
+  }, [revealed]);
 
   return (
     <>
@@ -504,8 +578,10 @@ function MyCard({ view, token }: { view: GameView; token: string }) {
   );
 }
 
-function Documents({ view, token }: { view: GameView; token: string }) {
+function Documents({ view, token, send }: { view: GameView; token: string; send: Send }) {
   const cast = view.public.cast;
+  const current = view.currentEnvelope;
+  const canTurn = view.mode === 'nomaster' || view.me.role === 'master';
   let counter = 0;
   return (
     <>
@@ -515,16 +591,29 @@ function Documents({ view, token }: { view: GameView; token: string }) {
       {view.envelopes.map((env) => (
         <div className="card" key={env.id}>
           <h2>{env.title}</h2>
-          {env.documents.map((d) => {
+          {env.id === current?.id && <p className="muted">Documento {current.shown} di {current.total}</p>}
+          {env.documents.map((d, i) => {
             const reader = cast[counter++ % cast.length];
             return (
-              <details key={d.id}>
+              <details key={d.id} open={env.id === current?.id && i === env.documents.length - 1}>
                 <summary>{d.title}</summary>
                 <p className="muted" style={{ marginTop: 8 }}>Legge il n. {reader.n}, {reader.name}</p>
                 <Blocks blocks={d.blocks} assetBase={assetBase(view)} token={token} />
               </details>
             );
           })}
+          {env.id === current?.id && current.shown < current.total && (
+            canTurn ? (
+              <ActionButton onClick={() => send({ type: 'nextDocument', expected: current.shown })}>
+                Letto: apri il prossimo documento
+              </ActionButton>
+            ) : (
+              <p className="muted" style={{ marginTop: 12 }}>Il prossimo documento lo apre il master.</p>
+            )
+          )}
+          {env.id === current?.id && current.shown >= current.total && (
+            <p className="muted" style={{ marginTop: 12 }}>Tutti i documenti di questa busta sono sul tavolo.</p>
+          )}
         </div>
       ))}
     </>

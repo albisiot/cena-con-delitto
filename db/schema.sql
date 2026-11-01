@@ -65,6 +65,9 @@ create table if not exists events (
   text text not null
 );
 
+-- Quanti documenti della busta aperta sono già usciti (almeno il primo).
+alter table games add column if not exists documents_shown int not null default 0;
+
 create table if not exists accounts (
   id text primary key,
   username text not null unique,

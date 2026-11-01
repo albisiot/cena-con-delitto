@@ -65,7 +65,19 @@ export function dealCards(playerIds: string[], cardNumbers: number[]) {
   return hands;
 }
 
-type GameRow = { code: string; pack_id: string; mode: 'master' | 'nomaster'; dealt: boolean; step: number; version: number };
+type GameRow = {
+  code: string; pack_id: string; mode: 'master' | 'nomaster'; dealt: boolean; step: number; version: number; documents_shown: number;
+};
+
+/** Aprendo una busta si vede subito il primo documento. */
+const documentsShown = (game: GameRow) => Math.max(game.documents_shown, 1);
+
+function documentsLeft(game: GameRow, pack: { public: PackPublic; secret: PackSecret }) {
+  const step = pack.public.program[game.step];
+  if (step?.kind !== 'envelope') return 0;
+  const total = pack.secret.envelopes.find((env) => env.id === step.envelope)?.documents.length ?? 0;
+  return Math.max(total - documentsShown(game), 0);
+}
 type PlayerRow = {
   id: string; name: string; role: 'player' | 'master'; is_host: boolean; cards: number[]; ready_step: number;
 };
@@ -282,6 +294,14 @@ export function buildView(input: {
 
   const myVote = votes.find((v) => v.player_id === me.id);
 
+  // Della busta aperta arrivano solo i documenti già usciti; quelle precedenti restano sul tavolo per intero.
+  const currentEnvelopeId = program[game.step]?.kind === 'envelope' ? program[game.step].envelope : null;
+  const shown = documentsShown(game);
+  const envelopes = pack.secret.envelopes
+    .filter((env) => openedEnvelopes.includes(env.id))
+    .map((env) => (env.id === currentEnvelopeId ? { ...env, documents: env.documents.slice(0, shown) } : env));
+  const currentTotal = pack.secret.envelopes.find((env) => env.id === currentEnvelopeId)?.documents.length ?? 0;
+
   const view: Record<string, unknown> = {
     code: game.code,
     version: game.version,
@@ -315,7 +335,10 @@ export function buildView(input: {
     myVote: myVote ? { accused: myVote.accused, answers: myVote.answers, award: myVote.award } : null,
     events: events.map((e) => e.text),
     cards: cardsOpen ? me.cards.map((n) => ({ n, blocks: pack.secret.cards[String(n)] })) : [],
-    envelopes: pack.secret.envelopes.filter((env) => openedEnvelopes.includes(env.id)),
+    envelopes,
+    currentEnvelope: currentEnvelopeId
+      ? { id: currentEnvelopeId, shown: Math.min(shown, currentTotal), total: currentTotal }
+      : null,
     finale: finaleOpen ? pack.secret.finale : null,
     results: null,
     allCards: null,
@@ -410,7 +433,7 @@ async function readAsset(db: Db, packId: string, assetId: string) {
 }
 
 async function moveToStep(q: Queryable, game: GameRow, pack: { public: PackPublic }, next: number) {
-  await q.query('update games set step = $2 where code = $1', [game.code, next]);
+  await q.query('update games set step = $2, documents_shown = 0 where code = $1', [game.code, next]);
   if (next >= pack.public.program.findIndex((s) => s.kind === 'cards')) {
     await recordParticipation(q, game.code, game.pack_id);
   }
@@ -452,6 +475,7 @@ export async function act(db: Db, code: string, token: string | null, action: an
         if (game.mode === 'master') throw new GameError('In questa partita decide il master.');
         if (!game.dealt) throw new GameError('Prima si distribuiscono i ruoli.');
         if (game.step >= finaleIndex) throw new GameError('La serata è già al finale.');
+        if (documentsLeft(game, pack) > 0) throw new GameError('Prima leggete tutti i documenti.');
         // Al voto "avanti" vale solo dopo aver votato, e il finale aspetta tutti: nessuno perde il voto.
         if (game.step === voteIndex) {
           const voted = await q.query('select 1 from votes where game_code = $1 and player_id = $2', [code, me.id]);
@@ -479,7 +503,17 @@ export async function act(db: Db, code: string, token: string | null, action: an
         if (me.role !== 'master') throw new GameError('Solo il master può avanzare.', 403);
         if (!game.dealt) throw new GameError('Prima si distribuiscono i ruoli.');
         if (game.step >= finaleIndex) throw new GameError('La serata è già al finale.');
+        if (documentsLeft(game, pack) > 0) throw new GameError('Prima leggete tutti i documenti.');
         await moveToStep(q, game, pack, game.step + 1);
+        break;
+      }
+      case 'nextDocument': {
+        if (game.mode === 'master' && me.role !== 'master') throw new GameError('Fa passare i documenti il master.', 403);
+        if (program[game.step]?.kind !== 'envelope') throw new GameError('Ora non ci sono documenti da aprire.');
+        // `expected` evita di saltarne uno se due persone toccano il pulsante insieme.
+        if (documentsLeft(game, pack) > 0 && Number(action.expected) === documentsShown(game)) {
+          await q.query('update games set documents_shown = $2 where code = $1', [code, documentsShown(game) + 1]);
+        }
         break;
       }
       case 'vote': {
