@@ -4,6 +4,7 @@ import {
   act, createGame, GameError, getAsset, getPublicAsset, getPublicPack, getState, joinGame, listPacks, saveAsset, savePack,
 } from './game.ts';
 import { packSummary, validatePack, type Pack } from './pack.ts';
+import { errorKind } from './retry.ts';
 import type { Db } from './types.ts';
 
 const CORS = {
@@ -119,8 +120,9 @@ export async function handleRequest(req: Request, getDb: () => Promise<Db>): Pro
     return await dispatch(req, await getDb());
   } catch (err) {
     if (err instanceof GameError) return json({ error: err.message }, err.status);
-    // Nei log solo il tipo di errore: i messaggi del database potrebbero citare il contenuto di una cena.
-    console.error(err instanceof Error ? err.name : 'Errore sconosciuto');
-    return json({ error: 'Qualcosa è andato storto. Riprova.' }, 500);
+    // Solo il tipo di errore: i messaggi del database potrebbero citare il contenuto di una cena.
+    const kind = errorKind(err);
+    console.error('Errore del server:', kind);
+    return json({ error: 'Qualcosa è andato storto. Riprova.', kind }, 500);
   }
 }
