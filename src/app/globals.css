@@ -117,7 +117,7 @@ button.small { width: auto; min-height: 40px; padding: 6px 12px; font-size: 14px
 
 .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: 0; }
-.badge { flex: none; font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.badge { display: inline-block; white-space: nowrap; margin-bottom: 4px; flex: none; font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
 .badge.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 
 .step { padding: 10px 0 10px 14px; border-left: 3px solid var(--line); }
