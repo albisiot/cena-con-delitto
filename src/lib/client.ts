@@ -8,6 +8,8 @@ export async function api<T = any>(path: string, options: { method?: string; bod
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+  }).catch(() => {
+    throw new Error('Connessione assente. Riprova.');
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error ?? 'Connessione assente. Riprova.'), { status: res.status });
