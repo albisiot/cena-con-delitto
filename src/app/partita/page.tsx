@@ -247,6 +247,7 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
   const next = program[view.step + 1];
   const atEnd = !next;
   const readyCount = seated.filter((p) => p.ready).length;
+  const notReady = seated.filter((p) => !p.ready).map((p) => p.name);
   const canDeal = !view.dealt && (isMaster || view.me.isHost);
   const votedCount = seated.filter((p) => p.voted).length;
 
@@ -316,17 +317,26 @@ function Evening({ view, token, send }: { view: GameView; token: string; send: S
             <p className="muted">Fa partire il master.</p>
           ) : (
             <>
-              <p className="muted">
-                Si passa quando è d&apos;accordo la maggioranza: {readyCount} su {view.readyNeeded}.
-                {next.kind === 'finale' ? ' Prima devi votare: chi non ha votato quando si apre il finale resta senza voto.' : ''}
-              </p>
+              {next.kind === 'finale' ? (
+                <>
+                  <p className="muted">Il finale si apre solo quando tutti hanno votato e premuto il pulsante: {readyCount} su {view.readyNeeded}.</p>
+                  {notReady.length > 0 && <p className="muted">Si aspettano: {notReady.join(', ')}.</p>}
+                </>
+              ) : (
+                <p className="muted">Si passa quando è d&apos;accordo la maggioranza: {readyCount} su {view.readyNeeded}.</p>
+              )}
               <ActionButton
                 className={view.me.ready ? 'ghost' : undefined}
                 disabled={view.me.ready || (next.kind === 'finale' && !view.myVote)}
                 onClick={() => send({ type: 'ready' })}
               >
-                {view.me.ready ? 'Si aspettano gli altri' : 'Si può andare avanti'}
+                {view.me.ready
+                  ? 'Si aspettano gli altri'
+                  : next.kind === 'finale' && !view.myVote ? 'Prima vota' : 'Si può andare avanti'}
               </ActionButton>
+              {next.kind === 'finale' && view.me.isHost && notReady.length > 0 && (
+                <ForceFinale missing={notReady.filter((name) => name !== view.me.name)} canForce={Boolean(view.myVote)} send={send} />
+              )}
             </>
           )}
         </div>
@@ -373,6 +383,27 @@ function MasterAdvance({ title, missingVotes, send }: { title: string; missingVo
       <ActionButton onClick={() => send({ type: 'advance' })}>Sì, fai partire</ActionButton>
       <button className="ghost" onClick={() => setConfirming(false)}>Annulla</button>
     </>
+  );
+}
+
+/** Per chi ha creato la stanza, se qualcuno non può più rispondere: altrimenti il finale non si aprirebbe mai. */
+function ForceFinale({ missing, canForce, send }: { missing: string[]; canForce: boolean; send: Send }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return <button className="ghost" onClick={() => setOpen(true)}>Qualcuno non può più rispondere?</button>;
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p>
+        Prova prima a farlo rientrare da un altro telefono con il suo nome e PIN. Se apri il finale ora, chi non ha votato non potrà più farlo
+        e tutti vedranno che l&apos;hai aperto tu{missing.length > 0 ? ` senza aspettare ${missing.join(', ')}` : ''}.
+      </p>
+      {!canForce && <p className="muted">Prima devi votare anche tu.</p>}
+      <ActionButton className="danger" disabled={!canForce} onClick={() => send({ type: 'forceFinale' })}>
+        Apri il finale senza aspettare
+      </ActionButton>
+      <button className="ghost" onClick={() => setOpen(false)}>Annulla</button>
+    </div>
   );
 }
 

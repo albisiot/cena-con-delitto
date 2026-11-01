@@ -30,7 +30,7 @@ Il controllo stampa solo conteggi e percorsi degli errori, mai il contenuto.
 - `cards`: da qui si apre la scheda di ognuno (esattamente uno)
 - `envelope`: apre la busta indicata in `envelope`
 - `vote`: si vota (esattamente uno)
-- `finale`: apre finale, classifica e tutte le schede (esattamente uno, dopo il voto)
+- `finale`: apre finale, classifica e tutte le schede (esattamente uno, dopo il voto). Senza master si apre solo quando tutti hanno votato e confermato
 
 ## Scrivere o importare una cena senza rovinarla
 

@@ -134,22 +134,46 @@ describe('nessuno spoiler', () => {
     await expect(act(db, code, tokens[0], { type: 'advance' })).rejects.toThrow();
   });
 
-  it('il finale non si apre prima che la maggioranza abbia votato', async () => {
+  it('il finale si apre solo quando tutti hanno votato e premuto avanti', async () => {
     await table('nomaster');
     await act(db, code, tokens[0], { type: 'deal' });
     await goToStep('vote');
+    expect((await stateOf(tokens[0])).readyNeeded).toBe(4);
     for (const t of tokens) await expect(act(db, code, t, { type: 'ready' })).rejects.toThrow('Prima vota');
     expect(text(await stateOf(tokens[0]))).not.toContain('SEGRETO_FINALE');
-    for (const t of tokens.slice(0, 3)) {
+    for (const t of tokens) {
       await act(db, code, t, { type: 'vote', accused: 3, answers: { movente: 'soldi' } });
     }
-    await act(db, code, tokens[0], { type: 'ready' });
-    await act(db, code, tokens[1], { type: 'ready' });
+    for (const t of tokens.slice(0, 3)) await act(db, code, t, { type: 'ready' });
     expect(text(await stateOf(tokens[0]))).not.toContain('SEGRETO_FINALE');
-    await act(db, code, tokens[2], { type: 'ready' });
+    await act(db, code, tokens[3], { type: 'ready' });
     const finale = await stateOf(tokens[0]);
     expect(text(finale)).toContain('SEGRETO_FINALE');
     expect(finale.results.find((r: any) => r.name === 'Primo').points).toBe(3);
+  });
+
+  it('solo chi ha creato la stanza può aprire il finale senza aspettare, e tutti lo vedono', async () => {
+    await table('nomaster');
+    await act(db, code, tokens[0], { type: 'deal' });
+    await expect(act(db, code, tokens[0], { type: 'forceFinale' })).rejects.toThrow('Ora non si può');
+    await goToStep('vote');
+    await expect(act(db, code, tokens[0], { type: 'forceFinale' })).rejects.toThrow('Prima vota');
+    await act(db, code, tokens[1], { type: 'vote', accused: 3, answers: {} });
+    await expect(act(db, code, tokens[1], { type: 'forceFinale' })).rejects.toThrow('creato la stanza');
+    expect(text(await stateOf(tokens[1]))).not.toContain('SEGRETO_FINALE');
+
+    await act(db, code, tokens[0], { type: 'vote', accused: 3, answers: {} });
+    await act(db, code, tokens[1], { type: 'ready' });
+    await act(db, code, tokens[0], { type: 'forceFinale' });
+    const after = await stateOf(tokens[2]);
+    expect(text(after)).toContain('SEGRETO_FINALE');
+    expect(after.events[0]).toContain('senza aspettare Giocatore 2, Giocatore 3');
+    expect(after.events[0]).not.toContain('Giocatore 1');
+  });
+
+  it('con il master il finale lo apre lui e non esiste l\'apertura di emergenza', async () => {
+    const master = await table('master');
+    await expect(act(db, code, master, { type: 'forceFinale' })).rejects.toThrow('creato la stanza');
   });
 
   it('i voti altrui restano nascosti fino al finale', async () => {

@@ -250,6 +250,8 @@ async function authenticate(q: Queryable, code: string, token: string | null) {
 
 const seatedPlayers = (players: PlayerRow[]) => players.filter((p) => p.role === 'player');
 const majorityOf = (n: number) => Math.floor(n / 2) + 1;
+/** Si avanza a maggioranza, tranne verso il finale: lì devono esserci tutti. */
+const readyNeededFor = (nextIsFinale: boolean, seats: number) => (nextIsFinale ? seats : majorityOf(seats));
 
 /**
  * L'unico punto che decide che cosa vede un telefono.
@@ -309,7 +311,7 @@ export function buildView(input: {
       // Solo prima di iniziare: dopo, la partita stessa finisce nello storico di tutti.
       alreadyPlayed: !game.dealt && alreadyPlayed.includes(p.id),
     })),
-    readyNeeded: majorityOf(seated.length),
+    readyNeeded: readyNeededFor(game.step + 1 === stepIndex('finale'), seated.length),
     myVote: myVote ? { accused: myVote.accused, answers: myVote.answers, award: myVote.award } : null,
     events: events.map((e) => e.text),
     cards: cardsOpen ? me.cards.map((n) => ({ n, blocks: pack.secret.cards[String(n)] })) : [],
@@ -450,14 +452,27 @@ export async function act(db: Db, code: string, token: string | null, action: an
         if (game.mode === 'master') throw new GameError('In questa partita decide il master.');
         if (!game.dealt) throw new GameError('Prima si distribuiscono i ruoli.');
         if (game.step >= finaleIndex) throw new GameError('La serata è già al finale.');
-        // Al voto "avanti" vale solo dopo aver votato: così il finale non si apre mai prima della maggioranza dei voti.
+        // Al voto "avanti" vale solo dopo aver votato, e il finale aspetta tutti: nessuno perde il voto.
         if (game.step === voteIndex) {
           const voted = await q.query('select 1 from votes where game_code = $1 and player_id = $2', [code, me.id]);
           if (!voted.length) throw new GameError('Prima vota.');
         }
         await q.query('update players set ready_step = $2 where id = $1', [me.id, game.step]);
         const readyCount = seated.filter((p) => p.id === me.id || p.ready_step === game.step).length;
-        if (readyCount >= majorityOf(seated.length)) await moveToStep(q, game, pack, game.step + 1);
+        if (readyCount >= readyNeededFor(game.step + 1 === finaleIndex, seated.length)) {
+          await moveToStep(q, game, pack, game.step + 1);
+        }
+        break;
+      }
+      case 'forceFinale': {
+        // Uscita di emergenza se qualcuno non può più rispondere: tutti vedono chi l'ha usata e chi mancava.
+        if (game.mode !== 'nomaster' || !me.is_host) throw new GameError('Solo chi ha creato la stanza può farlo.', 403);
+        if (game.step !== voteIndex) throw new GameError('Ora non si può aprire il finale.');
+        const voted = await q.query('select 1 from votes where game_code = $1 and player_id = $2', [code, me.id]);
+        if (!voted.length) throw new GameError('Prima vota.');
+        const missing = seated.filter((p) => p.id !== me.id && p.ready_step !== game.step).map((p) => p.name);
+        await moveToStep(q, game, pack, finaleIndex);
+        await logEvent(q, code, `Attenzione: ${me.name} ha aperto il finale senza aspettare ${missing.join(', ') || 'nessuno'}.`);
         break;
       }
       case 'advance': {
